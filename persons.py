@@ -1,4 +1,4 @@
-from dagster import resource, op, job
+from dagster import asset, Definitions, resource
 from pymongo import MongoClient
 from pydantic import AnyUrl
 from pydantic_settings import BaseSettings
@@ -14,14 +14,15 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 @resource(config_schema={"uri": str})
-def mongo_resource(context): 
+def mongo_resource(context):
+    """Return a MongoDB client instance."""
     uri = context.resource_config["uri"]
-    client = MongoClient(uri)
-    return client["mongo_persons"]
+    return MongoClient(uri)["mongo_persons"]
 
-@op(required_resource_keys={"mongo"})
-def load_persons_data(context): 
-    try: 
+@asset(required_resource_keys={"mongo"})
+def load_persons_data(context):
+    """Load persons data from a JSON file into the MongoDB."""
+    try:
         with open("persons.json") as f:
             persons = json.load(f)
 
@@ -32,13 +33,13 @@ def load_persons_data(context):
         context.log.error(f"Error inserting persons into MongoDB: {e}")
         raise
 
-@job(resource_defs={"mongo": mongo_resource})
-def persons_job():
-    load_persons_data()
+defs = Definitions(
+    assets=[load_persons_data],
+    resources={"mongo": mongo_resource},
+)
 
 if __name__ == "__main__":
     settings = Settings()
-
-    persons_job.execute_in_process(
-        run_config={"resources": {"mongo": {"config": {"uri": str(settings.uri)}}}}  
+    defs.get_job_def("__ASSET_JOB").execute_in_process(
+        run_config={"resources": {"mongo": {"config": {"uri": str(settings.uri)}}}}
     )
